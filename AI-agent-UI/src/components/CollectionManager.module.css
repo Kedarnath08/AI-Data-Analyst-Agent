@@ -1,0 +1,91 @@
+.managerRoot {
+  margin-bottom: 24px;
+}
+
+.sectionTitle {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--log-text);
+  letter-spacing: 0.5px;
+}
+
+.collectionList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.collectionItem {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--chip-text);
+  transition: background 0.15s;
+}
+
+.collectionItem.selected {
+  background: var(--chip-bg);
+  font-weight: 600;
+}
+
+.count {
+  font-size: 12px;
+  color: var(--log-text);
+  margin-left: 6px;
+}
+
+.actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.actionInput {
+  flex: 1;
+  font-size: 13px;
+  padding: 2px 6px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  min-width: 0;
+}
+
+.actionBtn {
+  background: var(--button-bg);
+  color: var(--button-text);
+  border: none;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+  min-width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actionBtn:disabled {
+  background: var(--button-disabled-bg);
+  cursor: not-allowed;
+}
+
+.inlineError {
+  color: #c00;
+  font-size: 12px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
