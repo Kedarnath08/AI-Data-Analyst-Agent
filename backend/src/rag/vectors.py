@@ -1,3 +1,5 @@
+import re
+import time
 from typing import List
 from src.config import settings
 from google import genai
@@ -5,23 +7,62 @@ from pinecone import Pinecone, ServerlessSpec
 
 # ---- Embeddings via Gemini ----
 
+_RETRY_AFTER_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
+
+
+def _retry_delay_from_error(err: Exception, default: float) -> float:
+    """Honor the server's suggested retryDelay when it gives one."""
+    m = _RETRY_AFTER_RE.search(str(err))
+    if m:
+        try:
+            return min(float(m.group(1)) + 2.0, 120.0)
+        except ValueError:
+            pass
+    return default
+
 
 class GeminiEmbedder:
+    """Embeds text via Gemini, retrying on rate limits.
+
+    The free tier allows ~100 embed requests/minute and a batch of N texts
+    counts as N requests, so ingesting a large PDF reliably trips a 429. We
+    back off and retry rather than failing the whole ingest.
+    """
+
+    MAX_ATTEMPTS = 6
+
     def __init__(self, api_key: str, model: str, output_dim: int = 768):
         self.client = genai.Client(api_key=api_key)
         self.model = model
         self.output_dim = output_dim
 
     def embed(self, texts: List[str]) -> List[List[float]]:
-        # We explicitly request 768-dimensional embeddings.
-        res = self.client.models.embed_content(
-            model=self.model,
-            contents=texts,
-            config={"output_dimensionality": self.output_dim}
-        )
-        if hasattr(res, "embeddings"):
-            return [e.values for e in res.embeddings]
-        return [res.embedding.values]
+        delay = 30.0
+        last_err = None
+        for attempt in range(self.MAX_ATTEMPTS):
+            try:
+                # We explicitly request 768-dimensional embeddings.
+                res = self.client.models.embed_content(
+                    model=self.model,
+                    contents=texts,
+                    config={"output_dimensionality": self.output_dim}
+                )
+                if hasattr(res, "embeddings"):
+                    return [e.values for e in res.embeddings]
+                return [res.embedding.values]
+            except Exception as e:
+                msg = str(e)
+                is_rate_limited = "429" in msg or "RESOURCE_EXHAUSTED" in msg
+                if not is_rate_limited or attempt == self.MAX_ATTEMPTS - 1:
+                    raise
+                last_err = e
+                wait = _retry_delay_from_error(e, delay)
+                print(f"[embed] rate limited; retrying in {wait:.0f}s "
+                      f"(attempt {attempt + 1}/{self.MAX_ATTEMPTS})")
+                time.sleep(wait)
+                delay = min(delay * 2, 120.0)
+        # Unreachable: the loop either returns or re-raises on the last attempt.
+        raise last_err or RuntimeError("Embedding failed without an error")
 
 
 EMBED_DIM = 768  # keep Pinecone index + Gemini output in sync

@@ -1,79 +1,142 @@
-# Project Overview — AI Data Analyst Agent ("Gemicone")
+# Project Overview — AI Data Analyst Agent + RAG Chatbot
 
-A RAG (Retrieval-Augmented Generation) chat app for PDFs: upload documents, they get chunked and embedded into Pinecone, and questions are answered by Gemini using only the retrieved chunks as context. Two independent folders, no shared package management:
+One project, two AI workspaces behind a single UI and a single backend:
 
-- `rag-gemini-backend/` — Python FastAPI service
-- `AI-agent-UI/` — Next.js 15 (App Router, React 19) frontend
+- **📄 Document Chat (RAG)** — upload PDFs, ask questions, get streamed answers grounded in
+  your documents with citations back to chunk and page.
+- **📊 Data Analyst (agentic)** — upload a CSV/Excel/PDF/DOCX *or* connect a live
+  Postgres/MySQL/SQLite database, ask in plain English, and an agent writes and runs SQL and
+  Python (pandas/Plotly) to answer, returning charts plus a trace of every step it took.
 
-No git repo is initialized at the root (each folder has its own `.gitignore` but this is not a git repository currently).
+```
+AI Data Analyst Agent/
+├── backend/       # one FastAPI app serving both capabilities (port 8090)
+└── AI-agent-UI/   # one Next.js app with a mode switch between the two (port 3000)
+```
 
 ---
 
-## Backend — `rag-gemini-backend/`
+## Backend — `backend/`
 
-FastAPI app (`api.py`, app instance named `apps`), run via:
-```
+Single FastAPI app (`api.py`, app object `apps`), one virtualenv, one port:
+
+```powershell
+cd backend
+python -m venv .venv; .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy env_sample.txt .env      # add your keys
 uvicorn api:apps --host 0.0.0.0 --port 8090
 ```
 
-### Modules (`src/`)
-- **`config.py`** — loads `.env` via `python-dotenv` into a `Settings` object: Gemini API key/models, Pinecone credentials, and RAG tuning knobs (`TOP_K=8`, `SIM_THRESHOLD=0.5`, `CHUNK_SIZE`, `CHUNK_OVERLAP`).
-- **`pdf.py`** — extracts text per-page from a PDF using `pypdf`, returns `[{"text", "page"}, ...]`.
-- **`chunk.py`** — cleans text (fixes ligatures, hyphenation, whitespace) and splits into overlapping word-based chunks, tagging each with a page number.
-- **`vectors.py`** — the core RAG engine:
-  - `GeminiEmbedder` wraps `google-genai` to produce 768-dim embeddings (`gemini-embedding-001` by default).
-  - Connects to Pinecone (serverless), auto-creates the index (`rag-gemini-demo`, cosine metric, 768 dims) if missing.
-  - `upsert_chunks()` — embeds and upserts chunks into a Pinecone **namespace** (namespace = "collection" in this app's vocabulary).
-  - `search()` — embeds the query and does a top-k similarity query, optionally with a Pinecone metadata `filter`.
-- **`collections.py`** — router (`/collections`) that lists/creates/deletes Pinecone namespaces. Note: "create" is a no-op (Pinecone namespaces are created implicitly on first upsert) — it just tracks the name for UI purposes. Delete wipes all vectors in that namespace.
-- **`llm.py`** — builds a prompt that forces Gemini to answer *only* from provided context, replies with a fixed "not present in document" sentence otherwise, and asks for `[chunk N]` citations (which are then stripped from the final answer text — citations are actually surfaced separately as structured `citations` metadata, not inline text).
-- **`cors.py`** — allows only `localhost:3000` / `127.0.0.1:3000` (the Next.js dev server).
+Swagger: http://localhost:8090/docs · Tests: `pip install -r requirements-dev.txt && pytest`
 
-### API endpoints (`api.py`)
-- `POST /ingest` — multipart upload of up to 5 PDFs (50MB each) into a `collection`. Extracts text, chunks per-page, embeds, upserts. Returns per-file success/error + total chunk count.
-- `POST /ingest_text` — same pipeline but for raw pasted text instead of a PDF.
-- `POST /query` — non-streaming Q&A. Retrieves chunks above `sim_threshold`, asks Gemini, returns `{answer, citations}`. If nothing relevant is found, returns a fixed message plus a Google search suggestion link.
-- `POST /query_stream` — Server-Sent Events version of the same flow. Emits `citations`, then `token` events. Note: true Gemini streaming isn't wired up (`answer_with_context.stream` doesn't exist on the function), so it always falls back to faking a stream by chopping the full answer into 60-char pieces with a small delay — response still waits for the full Gemini call before "streaming" starts.
-- Collections sub-router: `GET/POST /collections/`, `DELETE /collections/{name}`, `GET /collections/{name}/sources` (not fully implemented — just returns vector count).
+### Structure
 
-### Data / storage
-- Uploaded PDFs are saved locally to `data/uploads/` (a handful of sample PDFs already exist there — class notes, marks cards, a cloud roadmap, animal-fact guides — these look like the developer's own test uploads).
-- Vector storage is entirely in Pinecone (no local vector DB despite the folder name suggesting Chroma-style tuple returns — the `search()` return shape (`documents`/`metadatas`/`distances` lists) mimics a Chroma-like interface but is backed by Pinecone).
+```
+backend/
+├── api.py                  # mounts all routers; /ask, /health
+├── scripts/
+│   └── reingest_collections.py   # rebuild Pinecone namespaces after a model change
+└── src/
+    ├── config.py           # merged settings (one GOOGLE_API_KEY / GEN_MODEL)
+    ├── cors.py             # shared CORS (allows the UI on :3000)
+    ├── rag/                # Document Chat
+    │   ├── routes.py       #   /ingest, /ingest_text, /query, /query_stream (SSE)
+    │   ├── collections.py  #   /collections (Pinecone namespaces)
+    │   ├── vectors.py      #   Gemini embeddings + Pinecone, with 429 retry/backoff
+    │   ├── pdf.py chunk.py #   per-page extraction, overlapping chunking
+    │   └── llm.py          #   context-only answering + true token streaming
+    └── analyst/            # Data Analyst
+        ├── datasets.py     #   /datasets CRUD + /datasets/connect_db
+        ├── duck.py         #   DuckDB helpers, kind-aware (file vs live DB)
+        ├── db_connect.py   #   Postgres/MySQL/SQLite ATTACH (READ_ONLY)
+        ├── llm.py          #   the tool-calling agent loop
+        ├── ingest/         #   csv/excel (tabular), pdf_tables, docx_tables
+        ├── tools/          #   list_tables, get_schema, run_sql, run_python
+        └── sandbox/        #   subprocess runner template
+```
 
-### Config / secrets
-- `.env` (gitignored, correctly) currently holds **live** API keys for Google Gemini and Pinecone, plus `EMBED_MODEL=text-embedding-004`, `GEN_MODEL=gemini-2.5-flash`, `CHUNK_SIZE=900`, `CHUNK_OVERLAP=300`.
-- `env_sample.txt` is the template for others to copy into `.env`.
-- ⚠️ The code default in `config.py` (`GEN_MODEL` default `"gemini-3-flash-preview"`) differs from what's actually set in `.env` (`gemini-2.5-flash`) — the `.env` value wins at runtime, so this is just a stale/aspirational default, not a live bug.
+### How the analyst agent works
+
+1. A dataset is either an uploaded file materialized into a **DuckDB file**, or a **live
+   database attached READ_ONLY** via DuckDB's `ATTACH` (so the agent can never write to it).
+2. `POST /ask` runs a hand-rolled **Gemini native function-calling loop**: the model picks
+   tools (`list_tables` → `get_schema` → `run_sql` / `run_python`), the backend executes them
+   and feeds results back, until the model answers in plain text.
+3. `run_sql` is restricted to a single read-only `SELECT`/`WITH`, row-capped.
+4. `run_python` exports the dataset's tables to Parquet into a temp dir and runs the model's
+   code in a **subprocess with a wall-clock timeout**; a Plotly figure assigned to `fig` comes
+   back as JSON and is rendered in the UI.
+5. The response carries `answer`, `fig_json`, and a `trace` of every tool call — the UI shows
+   the trace under "How I got this".
+
+> **Gemini SDK note:** requires `google-genai>=2.12.1`. Thinking models attach a
+> `thought_signature` to each function call that must be echoed back across turns; older SDKs
+> drop it and the multi-turn tool loop fails. The loop appends the model's own `content`
+> verbatim to preserve it.
+
+### Key endpoints
+
+| Purpose | Endpoint |
+|---|---|
+| Ingest PDFs / raw text | `POST /ingest`, `POST /ingest_text` |
+| Ask a document question | `POST /query`, `POST /query_stream` (SSE) |
+| Manage RAG collections | `GET/POST /collections/`, `DELETE /collections/{name}` |
+| Upload a dataset | `POST /datasets/upload` |
+| Connect a live database | `POST /datasets/connect_db` |
+| Inspect / preview / delete | `GET /datasets/{id}`, `.../preview`, `DELETE /datasets/{id}` |
+| Ask an analyst question | `POST /ask` |
 
 ---
 
 ## Frontend — `AI-agent-UI/`
 
-Next.js 15 App Router project (Turbopack), plain CSS Modules (no component library), talks to the backend via `NEXT_PUBLIC_API_BASE` (set to `http://localhost:8090` in `.env.local`).
+Next.js 15 (App Router, React 19), CSS Modules, Plotly for charts.
 
-### Structure
-- **`src/app/page.js`** — the entire chat UI in one large client component (`HomePage`, ~950 lines). Responsibilities:
-  - Chat message list with user/assistant/system bubbles, a fake typewriter animation for assistant replies, basic Markdown rendering (code blocks/backticks/newlines only — via `dangerouslySetInnerHTML`, so no sanitization beyond the two regexes it applies).
-  - Drag-and-drop / file-picker PDF attachments, per-file upload status chips, upload to `/ingest`.
-  - Sends questions to `/query_stream`, hand-rolls SSE parsing (splits on `\n`, tracks `event:`/`data:` lines), handles `token`, `citations`, `not_found`, `error`, `done` events.
-  - Renders citations as clickable chips (chunk index + page + source file).
-  - "Regenerate" re-asks a prior question; "Stop" aborts the in-flight stream via `AbortController`.
-  - Light/dark theme toggle (local state only, not persisted).
-- **`src/components/Sidebar.js`** — left panel: app title, "New Chat" (just reloads the page — no real session/chat history persistence), embeds `CollectionManager`, and two *disabled* (display-only, not functional) inputs for `top_k`/`sim_threshold` — these settings are hardcoded in `page.js` (`top_k: 8, sim_threshold: 0.5`) and not actually wired to the UI inputs.
-- **`src/components/CollectionManager.js`** — dropdown of collections fetched from the backend, "create" and "clear" (delete) actions. Also keeps a `localStorage`-backed shadow list (`ragui_local_collections`) so newly created collections still show up even though backend "create" is a no-op stats-wise; last-selected collection persisted in `localStorage` too.
-- **`src/utils/collections.js`** — thin fetch wrappers for the `/collections` endpoints.
+```powershell
+cd AI-agent-UI
+npm install
+npm run dev     # http://localhost:3000
+```
 
-### Notable inconsistencies / rough edges (for awareness, not yet fixed)
-- Fallback API base in `page.js` (`ask()`) is `http://127.0.0.1:8000`, but the configured/actual backend port is `8090` (per `.env.local` and the README). This only matters if `NEXT_PUBLIC_API_BASE` is ever unset.
-- Streaming is simulated, not real token-by-token generation from Gemini.
-- No authentication/authorization anywhere — anyone who can reach the API can ingest/query/delete any collection.
-- Assistant/user text is rendered via `dangerouslySetInnerHTML` with only light regex-based Markdown handling — acceptable for a personal/local tool, but not XSS-safe if this were ever exposed publicly.
-- `.next/` build output is present in the repo tree (should typically be gitignored, though there's no git repo here yet so it doesn't matter until one is initialized).
+- `src/app/page.js` — thin shell owning theme / sidebar / active mode.
+- `src/components/ModeTabs.js` — the Document Chat ↔ Data Analyst switch.
+- `src/components/DocumentChat.js` — RAG chat: streaming answers, citation chips,
+  collection management, drag-and-drop PDF ingest, `top_k` / `sim_threshold` controls.
+- `src/components/DataAnalyst.js` — analyst chat: Plotly charts, expandable tool-call trace,
+  friendly handling of quota/key/model errors.
+- `src/components/DatasetManager.js` — upload a file or connect a database; select/delete.
+- `src/utils/` — `collections.js` (RAG), `datasets.js` (analyst).
+
+Config: `.env.local` → `NEXT_PUBLIC_API_BASE=http://localhost:8090`
 
 ---
 
-## How the pieces fit together
-1. User picks/creates a **collection** (= Pinecone namespace) in the sidebar.
-2. User drops a PDF → frontend `POST /ingest` → backend extracts text per page, chunks it, embeds each chunk (Gemini embeddings), upserts into Pinecone under that namespace.
-3. User asks a question → frontend `POST /query_stream` → backend embeds the question, does a Pinecone similarity search scoped to that namespace, filters by `sim_threshold`, sends the top matches to Gemini with a "context-only" system prompt, streams back the answer (simulated) plus citations (chunk index, source filename, page number).
-4. If no chunk clears the similarity threshold, the backend returns a fixed "not in document" message and a Google search suggestion link instead of calling the LLM.
+## Testing
+
+`pytest` from `backend/` — 37 tests. Only the external boundaries (Gemini, Pinecone) are
+mocked; DuckDB, file extraction, SQL, and the Python subprocess all run for real, so the suite
+runs offline and costs no API quota. Live-database behavior is covered via SQLite, which
+exercises the identical ATTACH code path as Postgres/MySQL without needing a server.
+
+---
+
+## Known limitations (deliberate, documented)
+
+- **`run_python` is not a security sandbox.** Subprocess + timeout + scoped working directory
+  only — no filesystem, network, or memory isolation (and no `resource.setrlimit` on Windows).
+  Not safe for untrusted users; real isolation is the next phase (Docker).
+- **Live-DB credentials** are stored in plaintext in the dataset's gitignored `meta.json`
+  (redacted in API responses). Use a dedicated read-only DB user; move to a secret store
+  before any real deployment.
+- **Prompt injection**: uploaded content reaches the model. Partial mitigations: read-only SQL
+  guard, execution timeout, READ_ONLY database attach.
+- **Gemini free tier is tight** — the agent makes several model calls per question, and
+  embedding is capped at ~100 requests/minute (ingestion retries with backoff). Use a billed
+  key for sustained use.
+- Changing `EMBED_MODEL` invalidates existing Pinecone vectors (different vector space);
+  rebuild them with `scripts/reingest_collections.py`.
+
+## Next up
+
+Docker packaging and deployment — which also gives `run_python` a real isolation boundary.
