@@ -6,6 +6,7 @@ network access, and memory is not capped (no resource.setrlimit on Windows).
 Do not expose to untrusted users without real isolation (Docker/gVisor). See README.
 """
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -19,22 +20,44 @@ from src.analyst.sandbox.runner_template import RUNNER_TEMPLATE
 SANDBOX_ROOT = Path("data/uploads/_sandbox")
 
 
+def _safe_var(display_name: str, used: set[str]) -> str:
+    """Turn a table display name into a valid, unique Python identifier.
+
+    File datasets give plain names ("data"); live-DB datasets give qualified
+    names ("public.users") which can't be used as variables as-is.
+    """
+    base = re.sub(r"\W+", "_", display_name.split(".")[-1]).strip("_").lower()
+    if not base or base[0].isdigit():
+        base = f"t_{base}" if base else "table"
+    name = base
+    i = 2
+    while name in used:
+        name = f"{base}_{i}"
+        i += 1
+    used.add(name)
+    return name
+
+
 def _prepare_sandbox(dataset_id: str, workdir: Path) -> dict[str, str]:
-    """Export each dataset table to Parquet inside workdir. Returns {table: path}."""
+    """Export each dataset table to Parquet inside workdir.
+
+    Returns {python_var_name: parquet_path}. Works for both file-backed and
+    live-DB datasets (duck.list_tables / duck.sql_ref are kind-aware).
+    """
     con = duck.connect(dataset_id, read_only=True)
-    paths = {}
+    paths: dict[str, str] = {}
+    used: set[str] = set()
     try:
-        tables = list(con.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'main'"
-        ).fetchall())
-        for (table,) in tables:
-            p = workdir / f"{table}.parquet"
+        for display in duck.list_tables(dataset_id):
+            var = _safe_var(display, used)
+            p = workdir / f"{var}.parquet"
             # COPY TO requires a string-literal path (no '?' params). The path is
             # a controlled temp path; escape single quotes defensively anyway.
             escaped = str(p).replace("'", "''")
-            con.execute(f"COPY \"{table}\" TO '{escaped}' (FORMAT PARQUET)")
-            paths[table] = str(p)
+            con.execute(
+                f"COPY {duck.sql_ref(display)} TO '{escaped}' (FORMAT PARQUET)"
+            )
+            paths[var] = str(p)
     finally:
         con.close()
     return paths

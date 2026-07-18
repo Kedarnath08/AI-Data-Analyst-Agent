@@ -44,8 +44,22 @@ Swagger UI: http://localhost:8090/docs
 **RAG:** `POST /ingest` (PDFs), `POST /ingest_text`, `POST /query`, `POST /query_stream` (SSE),
 `GET/POST /collections/`, `DELETE /collections/{name}`.
 
-**Data Analyst:** `POST /datasets/upload`, `GET /datasets/`, `GET /datasets/{id}`,
-`GET /datasets/{id}/preview`, `DELETE /datasets/{id}`, `POST /ask`.
+**Data Analyst:** `POST /datasets/upload`, `POST /datasets/connect_db`, `GET /datasets/`,
+`GET /datasets/{id}`, `GET /datasets/{id}/preview`, `DELETE /datasets/{id}`, `POST /ask`.
+
+### Connecting a live database
+
+`POST /datasets/connect_db` registers an external **Postgres**, **MySQL**, or **SQLite**
+database as a dataset, so the agent can query your live data instead of an uploaded file:
+
+```json
+{ "engine": "postgres", "name": "Prod replica", "host": "localhost",
+  "port": 5432, "user": "readonly", "password": "...", "database": "shop" }
+```
+
+The DB is attached via DuckDB `ATTACH ... (READ_ONLY)`, so the agent can never write to it.
+Tables are exposed schema-qualified (e.g. `public.orders`); in `run_python` each becomes a
+pandas DataFrame named after the table (`orders`). For SQLite, pass the file path as `database`.
 
 ## Tests
 
@@ -62,5 +76,10 @@ Tests mock only the external boundaries (Gemini + Pinecone) and run everything e
   only; no filesystem/network/memory isolation (no `resource.setrlimit` on Windows). Do not expose
   to untrusted users without real isolation (Docker/gVisor); planned for the deployment phase.
 - Prompt-injection surface via uploaded content; `run_sql` is restricted to read-only SELECT/WITH.
+- **Live-DB credentials are stored in plaintext** in the dataset's gitignored `meta.json`. They are
+  redacted in API responses, but this is local-grade handling — use a dedicated read-only DB user,
+  and move to a secret store before any real deployment.
+- `run_python` over a live DB exports the attached tables to Parquet first; very large tables will
+  be slow and memory-hungry.
 - Gemini free-tier quota is low; the agent makes several calls per question — use a billed key for
   sustained use.

@@ -17,10 +17,13 @@ from src.analyst.tools import python_tool, schema_tools, sql_tool
 client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
 SYSTEM_PROMPT = (
-    "You are an expert data analyst agent working with a single dataset stored in "
-    "DuckDB. You have tools to inspect the schema, run read-only SQL, and run Python "
-    "(pandas + plotly are available). \n"
+    "You are an expert data analyst agent working with a single dataset, queried "
+    "through DuckDB. The dataset is either an uploaded file or a live external "
+    "database (Postgres/MySQL/SQLite) attached read-only. You have tools to inspect "
+    "the schema, run read-only SQL, and run Python (pandas + plotly are available). \n"
     "- If you don't know the table/column names, call list_tables and get_schema first.\n"
+    "- Use table names exactly as returned by those tools. For live databases they are "
+    "schema-qualified (e.g. public.users) — use them verbatim in SQL.\n"
     "- Prefer run_sql for filtering and aggregation; it is read-only (SELECT/WITH only).\n"
     "- Use run_python when you need a chart or logic SQL can't express. In run_python, "
     "each table is preloaded as a pandas DataFrame named after the table. To return a "
@@ -63,8 +66,10 @@ TOOLS = [{
             "name": "run_python",
             "description": (
                 "Run Python (pandas + plotly available) for analysis or charting. Each dataset "
-                "table is preloaded as a pandas DataFrame named after the table. Assign a plotly "
-                "Figure to `fig` to return a chart. print() any textual results you want back."
+                "table is preloaded as a pandas DataFrame named after the table (for "
+                "schema-qualified tables like public.users the variable is just `users`). "
+                "Assign a plotly Figure to `fig` to return a chart. print() any textual results "
+                "you want back."
             ),
             "parameters": {
                 "type": "OBJECT",
