@@ -1,0 +1,12 @@
+# --- Google AI / Gemini ---
+GOOGLE_API_KEY=your_google_api_key
+
+# Generation model (must be a function-calling capable model)
+GEN_MODEL=gemini-flash-latest
+
+# --- Agent knobs ---
+MAX_AGENT_ITERATIONS=8
+SQL_ROW_LIMIT=200
+PY_TIMEOUT_SECONDS=20
+PY_MAX_OUTPUT_CHARS=20000
+MAX_UPLOAD_MB=50

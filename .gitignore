@@ -1,0 +1,6 @@
+# Claude Code harness artifacts
+.claude/
+
+# OS junk
+.DS_Store
+Thumbs.db
