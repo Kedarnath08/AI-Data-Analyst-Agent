@@ -456,3 +456,114 @@
   flex-direction: column;
   transition: background 0.2s;
 }
+
+/* ---------- Mode switch (Document Chat / Data Analyst) ---------- */
+.modeTabs {
+  display: flex;
+  gap: 4px;
+  background: var(--chip-bg);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.modeTab {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  opacity: 0.65;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.modeTab:hover {
+  opacity: 0.9;
+}
+
+.modeTabActive {
+  background: var(--header);
+  opacity: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* ---------- Data analyst: chart ---------- */
+.chartWrap {
+  margin-top: 14px;
+  border: 1px solid var(--sidebar-border);
+  border-radius: 10px;
+  padding: 8px;
+  background: var(--header);
+  overflow-x: auto;
+}
+
+/* ---------- Data analyst: agent tool-call trace ---------- */
+.traceWrap {
+  margin-top: 12px;
+  border-top: 1px solid var(--sidebar-border);
+  padding-top: 8px;
+}
+
+.traceSummary {
+  cursor: pointer;
+  font-size: 13px;
+  opacity: 0.75;
+  user-select: none;
+}
+
+.traceStep {
+  margin-top: 6px;
+}
+
+.traceHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--chip-bg);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.traceLabel {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tracePreview {
+  opacity: 0.6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traceBody {
+  padding: 8px 4px 4px 20px;
+}
+
+.traceCode,
+.traceResult {
+  background: var(--chip-bg);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+  margin: 0 0 6px 0;
+}
+
+.traceResult {
+  opacity: 0.8;
+}
