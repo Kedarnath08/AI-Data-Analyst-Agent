@@ -1,0 +1,26 @@
+# --- Gemini / Google AI ---
+GOOGLE_API_KEY=your_google_api_key
+
+# One model serves both RAG generation and the analyst's function-calling agent
+# (must be a function-calling capable model)
+GEN_MODEL=gemini-flash-latest
+EMBED_MODEL=gemini-embedding-001
+
+# --- Pinecone (serverless) ---
+PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_INDEX=rag-gemini-demo
+PINECONE_CLOUD=aws
+PINECONE_REGION=us-east-1
+
+# --- RAG knobs ---
+TOP_K=8
+SIM_THRESHOLD=0.5
+CHUNK_SIZE=900
+CHUNK_OVERLAP=300
+
+# --- Data analyst agent knobs ---
+MAX_AGENT_ITERATIONS=8
+SQL_ROW_LIMIT=200
+PY_TIMEOUT_SECONDS=20
+PY_MAX_OUTPUT_CHARS=20000
+MAX_UPLOAD_MB=50
