@@ -1,0 +1,20 @@
+{
+  // The backend runs from backend/ using its own virtualenv. Without this the
+  // editor analyzes against the system Python and reports false "Cannot find
+  // module duckdb/fastapi/..." errors even though the code runs and tests pass.
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+
+  // Imports are written as `from src.analyst...`, which resolve with backend/
+  // as the root (uvicorn and pytest are both run from there).
+  "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
+  "python.analysis.autoSearchPaths": true,
+
+  "python.testing.pytestEnabled": true,
+  "python.testing.cwd": "${workspaceFolder}/backend",
+  "python.testing.pytestArgs": ["tests"],
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true
+  }
+}
