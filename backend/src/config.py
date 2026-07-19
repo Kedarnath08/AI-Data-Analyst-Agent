@@ -14,7 +14,10 @@ class Settings:
     GOOGLE_API_KEY = _get("GOOGLE_API_KEY")
     # One generation model serves both the RAG answerer and the analyst agent's
     # function-calling loop. gemini-flash-latest handles both.
-    GEN_MODEL = _get("GEN_MODEL", "gemini-flash-latest")
+    # flash-lite by default: an agent makes several calls per question, and
+    # gemini-flash-latest's free tier allows only ~20 requests/day, which one
+    # session exhausts. See the model table in the README.
+    GEN_MODEL = _get("GEN_MODEL", "gemini-flash-lite-latest")
     EMBED_MODEL = _get("EMBED_MODEL", "gemini-embedding-001")
 
     # --- RAG knobs ---
