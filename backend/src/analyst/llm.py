@@ -6,6 +6,8 @@ back on the next request or the API returns 400 INVALID_ARGUMENT. We preserve it
 by appending the model's own `candidate.content` back into the history VERBATIM —
 never reconstruct the model turn from scratch. This requires google-genai>=2.12.1.
 """
+import re
+import time
 from typing import Any
 
 from google import genai
@@ -119,6 +121,41 @@ def _config() -> dict:
     }
 
 
+_RETRY_AFTER_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
+_MAX_MODEL_ATTEMPTS = 5
+
+
+def _generate_with_retry(contents):
+    """Call Gemini, retrying on rate limits.
+
+    A single agent question needs several model calls, but the free tier allows
+    only ~5 generate requests/minute — so one question reliably trips a 429
+    partway through. The server tells us how long to wait; honoring that lets
+    the run finish (slower) instead of failing outright.
+
+    Looked up on `client.models` at call time so tests can monkeypatch it.
+    """
+    delay = 15.0
+    for attempt in range(_MAX_MODEL_ATTEMPTS):
+        try:
+            return client.models.generate_content(
+                model=settings.GEN_MODEL,
+                contents=contents,
+                config=_config(),
+            )
+        except Exception as e:
+            msg = str(e)
+            rate_limited = "429" in msg or "RESOURCE_EXHAUSTED" in msg
+            if not rate_limited or attempt == _MAX_MODEL_ATTEMPTS - 1:
+                raise
+            m = _RETRY_AFTER_RE.search(msg)
+            wait = min(float(m.group(1)) + 2.0, 90.0) if m else delay
+            print(f"[agent] rate limited; retrying in {wait:.0f}s "
+                  f"(attempt {attempt + 1}/{_MAX_MODEL_ATTEMPTS})")
+            time.sleep(wait)
+            delay = min(delay * 2, 90.0)
+
+
 def run_agent(dataset_id: str, question: str) -> dict:
     contents = [types.Content(role="user", parts=[types.Part.from_text(text=question)])]
     trace: list[dict] = []
@@ -126,11 +163,7 @@ def run_agent(dataset_id: str, question: str) -> dict:
 
     for i in range(settings.MAX_AGENT_ITERATIONS):
         try:
-            resp = client.models.generate_content(
-                model=settings.GEN_MODEL,
-                contents=contents,
-                config=_config(),
-            )
+            resp = _generate_with_retry(contents)
         except Exception as e:
             return {
                 "answer": None,
