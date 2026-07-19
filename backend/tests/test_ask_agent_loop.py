@@ -83,3 +83,49 @@ def test_python_fig_json_surfaced_but_not_sent_to_model(tmp_path, scripted_agent
     preview = result["trace"][0]["result_preview"]
     assert "fig_json" not in preview
     assert preview["chart_generated"] is True
+
+
+def test_rate_limit_waiting_is_bounded_and_reported(monkeypatch, tmp_path):
+    """A 429 storm must not hang the request. The wait budget caps total sleep
+    and the result says it was rate limited rather than failing opaquely."""
+    from src.analyst import llm as analyst_llm
+
+    ds = _make_dataset(tmp_path, "ratelimited")
+
+    slept: list[float] = []
+    monkeypatch.setattr(analyst_llm.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(analyst_llm.settings, "MAX_RATE_LIMIT_WAIT_SECONDS", 45)
+
+    def always_429(model, contents, config=None):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED ... 'retryDelay': '20s'")
+
+    monkeypatch.setattr(analyst_llm.client.models, "generate_content", always_429)
+
+    out = run_agent(ds, "how many rows?")
+
+    assert out["rate_limited"] is True
+    assert out["answer"] is None
+    # 22s per retry against a 45s budget -> two sleeps, then give up.
+    assert slept == [22.0, 22.0]
+    assert sum(slept) <= 45
+    assert out["waited_seconds"] == 44
+
+
+def test_non_rate_limit_errors_are_not_retried(monkeypatch, tmp_path):
+    """Only 429s are worth waiting on; other failures should surface at once."""
+    from src.analyst import llm as analyst_llm
+
+    ds = _make_dataset(tmp_path, "badkey")
+    slept: list[float] = []
+    monkeypatch.setattr(analyst_llm.time, "sleep", lambda s: slept.append(s))
+
+    def boom(model, contents, config=None):
+        raise RuntimeError("403 PERMISSION_DENIED: API key invalid")
+
+    monkeypatch.setattr(analyst_llm.client.models, "generate_content", boom)
+
+    out = run_agent(ds, "how many rows?")
+    assert out["answer"] is None
+    assert "PERMISSION_DENIED" in out["error"]
+    assert slept == []
+    assert not out.get("rate_limited")

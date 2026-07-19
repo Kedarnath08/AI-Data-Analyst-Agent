@@ -31,6 +31,11 @@ class Settings:
 
     # --- Data analyst agent knobs ---
     MAX_AGENT_ITERATIONS = int(_get("MAX_AGENT_ITERATIONS", "8"))
+    # Total time one question may spend sleeping on API rate limits before
+    # giving up. Free-tier waits are ~60s each, so a small budget gives up too
+    # eagerly; /ask_stream reports each wait and the user can stop, so a longer
+    # ceiling is tolerable here.
+    MAX_RATE_LIMIT_WAIT_SECONDS = int(_get("MAX_RATE_LIMIT_WAIT_SECONDS", "180"))
     SQL_ROW_LIMIT = int(_get("SQL_ROW_LIMIT", "200"))
     PY_TIMEOUT_SECONDS = int(_get("PY_TIMEOUT_SECONDS", "20"))
     PY_MAX_OUTPUT_CHARS = int(_get("PY_MAX_OUTPUT_CHARS", "20000"))

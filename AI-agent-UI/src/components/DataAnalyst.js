@@ -6,7 +6,7 @@ import DatasetManager from "./DatasetManager";
 import DataPreview from "./DataPreview";
 import SuggestedQuestions from "./SuggestedQuestions";
 import styles from "../app/page.module.css";
-import { askAnalyst } from "../utils/datasets";
+import { askAnalystStream } from "../utils/datasets";
 
 // Plotly touches `window`, so it must not be server-rendered.
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
@@ -31,9 +31,35 @@ function renderMarkdown(text) {
   return out;
 }
 
+/** Elapsed-seconds ticker so a long run never looks frozen. */
+function useElapsed(active) {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    if (!active) {
+      setSecs(0);
+      return;
+    }
+    const started = Date.now();
+    const id = setInterval(
+      () => setSecs(Math.floor((Date.now() - started) / 1000)),
+      1000,
+    );
+    return () => clearInterval(id);
+  }, [active]);
+  return secs;
+}
+
 /** Turn raw backend/model errors into something actionable for the user. */
 function formatBackendError(msg) {
   const text = String(msg);
+  if (/rate limits/i.test(text)) {
+    // The backend already explains how long it waited and why it stopped.
+    return (
+      text +
+      " Free-tier Gemini allows ~5 requests/minute and one question needs " +
+      "several — wait a minute, ask one thing at a time, or enable billing."
+    );
+  }
   if (/RESOURCE_EXHAUSTED|429|quota/i.test(text)) {
     return (
       "Gemini API quota exceeded. The analyst makes several model calls per " +
@@ -147,6 +173,60 @@ function AnalystMessage({ m }) {
   );
 }
 
+const STEP_LABELS = {
+  list_tables: "Looking up the tables",
+  get_schema: "Reading the schema",
+  run_sql: "Running SQL",
+  run_python: "Running Python",
+};
+
+/** Live progress: the agent's actual steps, streamed as they happen. */
+function ThinkingBubble({ onStop, steps }) {
+  const secs = useElapsed(true);
+  const current = steps[steps.length - 1];
+
+  return (
+    <div className={styles.typingBubble}>
+      <div className={styles.assistantHeader}>Analyst</div>
+      <div>
+        {current?.label || "Thinking"}
+        <span className={styles.dotPulse}>…</span>{" "}
+        <span className={styles.elapsed}>{secs}s</span>
+      </div>
+
+      {steps.length > 0 && (
+        <ol className={styles.progressList}>
+          {steps.map((s, i) => {
+            const isLast = i === steps.length - 1;
+            return (
+              <li
+                key={i}
+                className={`${styles.progressStep} ${
+                  s.waiting ? styles.progressWaiting : ""
+                }`}
+              >
+                <span className={styles.progressIcon}>
+                  {isLast ? (s.waiting ? "⏳" : "▸") : "✓"}
+                </span>
+                <span>
+                  {s.label}
+                  {s.detail && (
+                    <span className={styles.progressDetail}> {s.detail}</span>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      <button className={styles.stopBtn} onClick={onStop}>
+        ⏹ Stop
+      </button>
+    </div>
+  );
+}
+
 export default function DataAnalyst({
   apiBase,
   theme,
@@ -159,6 +239,7 @@ export default function DataAnalyst({
   const [dataset, setDataset] = useState(null); // {id, name, ...}
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  const [steps, setSteps] = useState([]); // live agent progress
   const [messages, setMessages] = useState([]);
   const chatRef = useRef(null);
   const abortRef = useRef(null);
@@ -179,6 +260,47 @@ export default function DataAnalyst({
     [],
   );
 
+  /** Translate a stream event into a human-readable progress step. */
+  function handleProgress(ev) {
+    setSteps((prev) => {
+      if (ev.type === "thinking") {
+        // Only announce "Thinking" once at the start; later model calls are
+        // implied by the tool steps and would just add noise.
+        if (prev.length > 0) return prev;
+        return [{ label: "Thinking about how to answer" }];
+      }
+
+      if (ev.type === "waiting") {
+        return [
+          ...prev,
+          {
+            label: `Waiting ${ev.seconds}s — API rate limit`,
+            detail: `${ev.budget_left}s of wait budget left`,
+            waiting: true,
+          },
+        ];
+      }
+
+      if (ev.type === "tool_start") {
+        const detail =
+          ev.args?.query || ev.args?.code || ev.args?.table || "";
+        return [
+          ...prev,
+          {
+            label: STEP_LABELS[ev.tool] || ev.tool,
+            detail: detail ? `${detail.slice(0, 50)}…` : "",
+          },
+        ];
+      }
+
+      if (ev.type === "tool_end" && ev.chart) {
+        return [...prev, { label: "Chart generated" }];
+      }
+
+      return prev;
+    });
+  }
+
   async function ask(e) {
     e?.preventDefault?.();
     if (busy) return;
@@ -192,12 +314,19 @@ export default function DataAnalyst({
     setMessages((m) => [...m, { role: "user", text: q }]);
     setQuestion("");
     setBusy(true);
+    setSteps([]);
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      const data = await askAnalyst(apiBase, dataset.id, q, controller.signal);
+      const data = await askAnalystStream(
+        apiBase,
+        dataset.id,
+        q,
+        handleProgress,
+        controller.signal,
+      );
 
       // The agent can fail mid-run (e.g. model quota) and still return HTTP 200
       // with a structured error — surface it instead of showing an empty answer.
@@ -375,15 +504,7 @@ export default function DataAnalyst({
             {messages.map((m, i) => (
               <AnalystMessage key={i} m={m} />
             ))}
-            {busy && (
-              <div className={styles.typingBubble}>
-                <div className={styles.assistantHeader}>Analyst</div>
-                <div>Analyzing… (writing and running queries)</div>
-                <button className={styles.stopBtn} onClick={cancel}>
-                  ⏹ Stop
-                </button>
-              </div>
-            )}
+            {busy && <ThinkingBubble onStop={cancel} steps={steps} />}
           </div>
         </div>
 

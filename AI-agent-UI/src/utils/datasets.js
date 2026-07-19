@@ -54,6 +54,75 @@ export async function deleteDataset(apiBase, id) {
   );
 }
 
+/**
+ * Ask the analyst with live progress. `onEvent({type, ...})` fires for each
+ * step (thinking / tool_start / tool_end / waiting) and finally for the
+ * result, so the UI can show what the agent is doing instead of a spinner.
+ * Resolves with the final payload.
+ */
+export async function askAnalystStream(
+  apiBase,
+  datasetId,
+  question,
+  onEvent,
+  signal,
+) {
+  const res = await fetch(`${apiBase}/ask_stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify({ dataset_id: datasetId, question }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let event = null;
+  let final = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop(); // keep any partial line for the next chunk
+
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (line.startsWith("event:")) {
+        event = line.slice(6).trim();
+        continue;
+      }
+      if (!line.startsWith("data:")) continue;
+
+      let payload;
+      try {
+        payload = JSON.parse(line.slice(5).trim());
+      } catch {
+        continue;
+      }
+      if (event === "final") {
+        final = payload.payload;
+      } else {
+        onEvent?.({ type: event, ...payload });
+      }
+    }
+  }
+
+  if (!final) throw new Error("Stream ended before the agent returned a result.");
+  return final;
+}
+
 export async function askAnalyst(apiBase, datasetId, question, signal) {
   return handle(
     await fetch(`${apiBase}/ask`, {

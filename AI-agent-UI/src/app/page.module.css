@@ -775,3 +775,64 @@
   opacity: 0.5;
   cursor: default;
 }
+
+.elapsed {
+  opacity: 0.55;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.thinkingHint {
+  font-size: 12px;
+  opacity: 0.6;
+  margin-top: 4px;
+  max-width: 460px;
+}
+
+/* ---------- Live agent progress ---------- */
+.progressList {
+  list-style: none;
+  margin: 10px 0 4px 0;
+  padding: 0;
+  border-left: 2px solid var(--sidebar-border);
+}
+
+.progressStep {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  padding: 3px 0 3px 10px;
+  opacity: 0.85;
+}
+
+.progressStep:last-child {
+  opacity: 1;
+  font-weight: 600;
+}
+
+.progressWaiting {
+  color: #d97706;
+}
+
+.progressIcon {
+  width: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.progressDetail {
+  opacity: 0.55;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.dotPulse {
+  animation: dotPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}

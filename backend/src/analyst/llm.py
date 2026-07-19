@@ -122,67 +122,140 @@ def _config() -> dict:
 
 
 _RETRY_AFTER_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
-_MAX_MODEL_ATTEMPTS = 5
 
 
-def _generate_with_retry(contents):
-    """Call Gemini, retrying on rate limits.
+class RateLimitExhausted(Exception):
+    """Ran out of the request's total budget for waiting on rate limits."""
 
-    A single agent question needs several model calls, but the free tier allows
-    only ~5 generate requests/minute — so one question reliably trips a 429
-    partway through. The server tells us how long to wait; honoring that lets
-    the run finish (slower) instead of failing outright.
 
-    Looked up on `client.models` at call time so tests can monkeypatch it.
+class _WaitBudget:
+    """Caps total time spent sleeping on 429s across a whole /ask request.
+
+    Retrying per-call is not enough: one question makes several model calls, so
+    an unbounded per-call retry can stack into many minutes of silent waiting
+    while the UI just shows a spinner. A single shared budget bounds the worst
+    case for the request as a whole.
     """
-    delay = 15.0
-    for attempt in range(_MAX_MODEL_ATTEMPTS):
+
+    def __init__(self, total_seconds: float):
+        self.remaining = total_seconds
+        self.waited = 0.0
+
+    def sleep(self, seconds: float) -> None:
+        if seconds > self.remaining:
+            raise RateLimitExhausted(
+                f"Waited {self.waited:.0f}s on API rate limits and the next retry "
+                f"needs {seconds:.0f}s more, which exceeds the "
+                f"{settings.MAX_RATE_LIMIT_WAIT_SECONDS}s budget for one question."
+            )
+        self.remaining -= seconds
+        self.waited += seconds
+        time.sleep(seconds)
+
+
+def _generate_streaming(contents, budget: "_WaitBudget"):
+    """Generator wrapper around a Gemini call that retries on rate limits.
+
+    Yields {"type": "waiting", ...} before each sleep so callers can tell the
+    user *why* nothing is happening, then finally yields
+    {"type": "response", "resp": ...}. It's a generator rather than a callback
+    because the caller needs to emit an event mid-retry.
+
+    The free tier allows only ~5 generate requests/minute while one question
+    needs several, so 429s mid-run are normal. Honoring the server's retryDelay
+    lets the run finish instead of failing — bounded by `budget`.
+
+    `client.models` is looked up at call time so tests can monkeypatch it.
+    """
+    while True:
         try:
-            return client.models.generate_content(
+            resp = client.models.generate_content(
                 model=settings.GEN_MODEL,
                 contents=contents,
                 config=_config(),
             )
+            yield {"type": "response", "resp": resp}
+            return
         except Exception as e:
             msg = str(e)
-            rate_limited = "429" in msg or "RESOURCE_EXHAUSTED" in msg
-            if not rate_limited or attempt == _MAX_MODEL_ATTEMPTS - 1:
+            if not ("429" in msg or "RESOURCE_EXHAUSTED" in msg):
                 raise
             m = _RETRY_AFTER_RE.search(msg)
-            wait = min(float(m.group(1)) + 2.0, 90.0) if m else delay
-            print(f"[agent] rate limited; retrying in {wait:.0f}s "
-                  f"(attempt {attempt + 1}/{_MAX_MODEL_ATTEMPTS})")
-            time.sleep(wait)
-            delay = min(delay * 2, 90.0)
+            wait = min(float(m.group(1)) + 2.0, 60.0) if m else 20.0
+            print(f"[agent] rate limited; waiting {wait:.0f}s "
+                  f"({budget.remaining:.0f}s of budget left)")
+            yield {"type": "waiting", "seconds": round(wait),
+                   "budget_left": round(budget.remaining)}
+            budget.sleep(wait)
 
 
-def run_agent(dataset_id: str, question: str) -> dict:
+def _generate_with_retry(contents, budget: "_WaitBudget"):
+    """Blocking form of _generate_streaming, for the non-streaming /ask path."""
+    for event in _generate_streaming(contents, budget):
+        if event["type"] == "response":
+            return event["resp"]
+
+
+def iter_agent(dataset_id: str, question: str):
+    """Run the agent, yielding progress events as it goes.
+
+    Events are dicts with a "type": "thinking" (a model call is in flight),
+    "tool_start"/"tool_end" (a tool is running / finished), "waiting" (sleeping
+    off a rate limit), and finally "final" carrying the same payload run_agent
+    returns. Streaming these is what lets the UI show what the agent is doing
+    instead of an opaque spinner — a single question can take a minute or more
+    on the free tier.
+    """
     contents = [types.Content(role="user", parts=[types.Part.from_text(text=question)])]
     trace: list[dict] = []
-    fig_json = None  # last chart produced by run_python, surfaced in the HTTP response
+    fig_json = None  # last chart produced by run_python, surfaced in the response
+
+    budget = _WaitBudget(settings.MAX_RATE_LIMIT_WAIT_SECONDS)
 
     for i in range(settings.MAX_AGENT_ITERATIONS):
+        yield {"type": "thinking", "iteration": i + 1}
+        resp = None
         try:
-            resp = _generate_with_retry(contents)
+            for event in _generate_streaming(contents, budget):
+                if event["type"] == "response":
+                    resp = event["resp"]
+                else:
+                    yield event  # surface "waiting" to the client
+        except RateLimitExhausted as e:
+            yield {"type": "final", "payload": {
+                "answer": None,
+                "error": str(e),
+                "rate_limited": True,
+                "trace": trace,
+                "fig_json": fig_json,
+                "iterations": i + 1,
+                "waited_seconds": round(budget.waited),
+            }}
+            return
         except Exception as e:
-            return {
+            yield {"type": "final", "payload": {
                 "answer": None,
                 "error": f"Model call failed: {type(e).__name__}: {e}",
                 "trace": trace,
                 "fig_json": fig_json,
                 "iterations": i + 1,
-            }
+                "waited_seconds": round(budget.waited),
+            }}
+            return
+
         candidate = resp.candidates[0]
         parts = candidate.content.parts or []
         function_calls = [p.function_call for p in parts if p.function_call is not None]
 
         if not function_calls:
-            return {
+            yield {"type": "final", "payload": {
                 "answer": (resp.text or "").strip(),
                 "trace": trace,
                 "fig_json": fig_json,
                 "iterations": i + 1,
-            }
+                "waited_seconds": round(budget.waited),
+            }}
+            return
 
         # Echo the model's own turn back verbatim (preserves thought_signature).
         contents.append(candidate.content)
@@ -191,6 +264,8 @@ def run_agent(dataset_id: str, question: str) -> dict:
         for fc in function_calls:
             name = fc.name
             args = dict(fc.args or {})
+            yield {"type": "tool_start", "tool": name, "args": args}
+
             impl = TOOL_IMPLS.get(name)
             if impl is None:
                 result = {"error": f"Unknown tool '{name}'."}
@@ -209,18 +284,32 @@ def run_agent(dataset_id: str, question: str) -> dict:
             else:
                 model_result = result
 
-            trace.append({"tool": name, "args": args, "result_preview": _preview(model_result)})
+            step = {"tool": name, "args": args, "result_preview": _preview(model_result)}
+            trace.append(step)
+            yield {"type": "tool_end", "step": step,
+                   "chart": bool(name == "run_python" and fig_json)}
+
             response_parts.append(
                 types.Part.from_function_response(name=name, response=_as_response_dict(model_result))
             )
 
         contents.append(types.Content(role="user", parts=response_parts))
 
-    return {
+    yield {"type": "final", "payload": {
         "answer": "I couldn't reach a final answer within the tool-call budget. "
                   "See the trace for what I found so far.",
         "trace": trace,
         "fig_json": fig_json,
         "iterations": settings.MAX_AGENT_ITERATIONS,
         "truncated": True,
-    }
+        "waited_seconds": round(budget.waited),
+    }}
+
+
+def run_agent(dataset_id: str, question: str) -> dict:
+    """Blocking form of iter_agent: drains the events and returns the result."""
+    payload: dict = {}
+    for event in iter_agent(dataset_id, question):
+        if event["type"] == "final":
+            payload = event["payload"]
+    return payload
