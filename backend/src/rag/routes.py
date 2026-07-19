@@ -189,7 +189,10 @@ def retrieve_context(q: QueryIn):
 
 
 def sse_event(event: str, data: dict):
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    # default=str so an unexpected type (dates, Decimal, numpy scalars) can
+    # never kill a stream mid-flight — a stringified value beats a dead stream.
+    payload = json.dumps(data, ensure_ascii=False, default=str)
+    return f"event: {event}\ndata: {payload}\n\n"
 
 
 @router.post("/query")

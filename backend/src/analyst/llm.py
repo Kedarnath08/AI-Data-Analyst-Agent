@@ -122,10 +122,17 @@ def _config() -> dict:
 
 
 _RETRY_AFTER_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
+# Google reports which quota was hit; per-day ones are not worth retrying.
+_PER_DAY_QUOTA_RE = re.compile(r"PerDay", re.IGNORECASE)
+_QUOTA_LIMIT_RE = re.compile(r"limit:\s*(\d+)")
 
 
 class RateLimitExhausted(Exception):
     """Ran out of the request's total budget for waiting on rate limits."""
+
+
+class DailyQuotaExhausted(Exception):
+    """The model's per-day free-tier quota is spent; retrying cannot help."""
 
 
 class _WaitBudget:
@@ -180,6 +187,20 @@ def _generate_streaming(contents, budget: "_WaitBudget"):
             msg = str(e)
             if not ("429" in msg or "RESOURCE_EXHAUSTED" in msg):
                 raise
+            # A *daily* quota won't free up by waiting — it resets at midnight
+            # Pacific. Retrying just burns minutes for nothing, so fail fast
+            # and say so. Only per-minute limits are worth sleeping on.
+            if _PER_DAY_QUOTA_RE.search(msg):
+                limit = _QUOTA_LIMIT_RE.search(msg)
+                raise DailyQuotaExhausted(
+                    "Daily Gemini quota exhausted for model "
+                    f"'{settings.GEN_MODEL}'"
+                    + (f" (limit: {limit.group(1)} requests/day)" if limit else "")
+                    + ". This resets at midnight Pacific — waiting won't help. "
+                    "Switch GEN_MODEL in backend/.env to a model with more free "
+                    "headroom (e.g. gemini-flash-lite-latest), or enable billing."
+                ) from e
+
             m = _RETRY_AFTER_RE.search(msg)
             wait = min(float(m.group(1)) + 2.0, 60.0) if m else 20.0
             print(f"[agent] rate limited; waiting {wait:.0f}s "
@@ -221,6 +242,17 @@ def iter_agent(dataset_id: str, question: str):
                     resp = event["resp"]
                 else:
                     yield event  # surface "waiting" to the client
+        except DailyQuotaExhausted as e:
+            yield {"type": "final", "payload": {
+                "answer": None,
+                "error": str(e),
+                "quota_exhausted": True,
+                "trace": trace,
+                "fig_json": fig_json,
+                "iterations": i + 1,
+                "waited_seconds": round(budget.waited),
+            }}
+            return
         except RateLimitExhausted as e:
             yield {"type": "final", "payload": {
                 "answer": None,

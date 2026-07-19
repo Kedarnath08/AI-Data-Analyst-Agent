@@ -61,34 +61,37 @@ async def ask_stream(body: AskIn):
         raise HTTPException(400, "Question is empty.")
 
     async def event_generator():
-        # iter_agent is blocking (network calls, subprocesses, time.sleep), so
-        # it runs in a worker thread and hands events back through a queue —
-        # otherwise it would stall the whole event loop.
-        send, receive = anyio.create_memory_object_stream(max_buffer_size=100)
+        # iter_agent blocks (network calls, subprocesses, time.sleep), so each
+        # step is advanced in a worker thread to keep the event loop free.
+        # Pulling one item at a time is deliberate: driving the generator from a
+        # background task through a memory stream breaks when this async
+        # generator is suspended mid-yield (the task group tears down and the
+        # producer dies with BrokenResourceError).
+        agent = iter_agent(body.dataset_id, q)
+        done = object()
 
-        def produce():
+        def next_event():
             try:
-                for event in iter_agent(body.dataset_id, q):
-                    anyio.from_thread.run(send.send, event)
-            except Exception as e:
-                anyio.from_thread.run(
-                    send.send,
-                    {"type": "final", "payload": {
-                        "answer": None,
-                        "error": f"{type(e).__name__}: {e}",
-                        "trace": [],
-                        "fig_json": None,
-                    }},
-                )
-            finally:
-                anyio.from_thread.run(send.aclose)
+                return next(agent)
+            except StopIteration:
+                return done
 
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(anyio.to_thread.run_sync, produce)
-            async with receive:
-                async for event in receive:
-                    kind = event.pop("type")
-                    yield sse_event(kind, event)
+        try:
+            while True:
+                event = await anyio.to_thread.run_sync(next_event)
+                if event is done:
+                    break
+                kind = event.pop("type")
+                yield sse_event(kind, event)
+        except Exception as e:
+            yield sse_event("final", {"payload": {
+                "answer": None,
+                "error": f"{type(e).__name__}: {e}",
+                "trace": [],
+                "fig_json": None,
+            }})
+        finally:
+            agent.close()
 
     return StreamingResponse(
         event_generator(),

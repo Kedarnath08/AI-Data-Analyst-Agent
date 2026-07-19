@@ -4,6 +4,8 @@ Rejects anything that isn't a single SELECT/WITH statement. This is a cheap
 guard against the agent (or prompt-injected file content) issuing writes/DDL —
 not a full SQL firewall, but it keeps the tool read-only in practice.
 """
+import datetime
+import decimal
 import re
 
 from src.analyst import duck
@@ -49,7 +51,30 @@ def run_sql(dataset_id: str, query: str) -> dict:
     rows = rows[: settings.SQL_ROW_LIMIT]
     return {
         "columns": columns,
-        "rows": [list(r) for r in rows],
+        "rows": [[_json_safe(v) for v in r] for r in rows],
         "row_count": len(rows),
         "truncated": truncated,
     }
+
+
+def _json_safe(value):
+    """Coerce DuckDB values into something JSON-serializable.
+
+    Query results flow into SSE frames (plain json.dumps) and into the model's
+    function_response, and DuckDB happily returns date/datetime/Decimal/UUID —
+    none of which json.dumps handles. Dates become ISO strings, which is also
+    the clearest form for the model to reason about.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (datetime.date, datetime.datetime, datetime.time)):
+        return value.isoformat()
+    if isinstance(value, decimal.Decimal):
+        return float(value)
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    return str(value)

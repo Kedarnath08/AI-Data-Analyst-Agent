@@ -53,3 +53,33 @@ def test_with_cte_allowed(csv_dataset):
     )
     assert "error" not in res
     assert res["row_count"] == 2
+
+
+def test_dates_and_decimals_are_json_serializable(tmp_path):
+    """Query results are JSON-encoded into SSE frames and the model's
+    function_response, but DuckDB returns real date objects — which json.dumps
+    cannot encode. They must come back as ISO strings."""
+    import json
+
+    from src.analyst import duck
+    from src.analyst.tools.sql_tool import run_sql
+
+    ds = "datetypes"
+    con = duck.connect(ds)
+    con.execute(
+        "CREATE TABLE data AS SELECT * FROM (VALUES "
+        "(DATE '2026-01-05', TIMESTAMP '2026-01-05 10:30:00', 12.5), "
+        "(DATE '2026-02-10', TIMESTAMP '2026-02-10 08:00:00', 7.25)"
+        ") AS t(d, ts, amount)"
+    )
+    con.close()
+
+    out = run_sql(ds, "SELECT d, ts, amount FROM data ORDER BY d")
+    assert "error" not in out, out
+
+    # The whole result must survive a plain json.dumps, as SSE requires.
+    json.dumps(out)
+
+    assert out["rows"][0][0] == "2026-01-05"
+    assert out["rows"][0][1].startswith("2026-01-05T")
+    assert out["rows"][0][2] == 12.5

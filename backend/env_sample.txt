@@ -3,7 +3,7 @@ GOOGLE_API_KEY=your_google_api_key
 
 # One model serves both RAG generation and the analyst's function-calling agent
 # (must be a function-calling capable model)
-GEN_MODEL=gemini-flash-latest
+GEN_MODEL=gemini-flash-lite-latest
 EMBED_MODEL=gemini-embedding-001
 
 # --- Pinecone (serverless) ---
