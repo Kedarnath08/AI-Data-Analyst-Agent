@@ -121,11 +121,50 @@ exercises the identical ATTACH code path as Postgres/MySQL without needing a ser
 
 ---
 
+## Running with Docker
+
+> ⚠️ **Not yet built or run.** The Dockerfiles and compose file are written but
+> have never been executed — they were authored on a machine without Docker.
+> Expect to iterate on the first `docker compose up --build`. Everything below
+> is the intended workflow, not a verified one.
+
+```bash
+cp backend/env_sample.txt backend/.env    # add your keys
+docker compose up --build
+```
+
+- UI → http://localhost:3000 · API → http://localhost:8090/docs
+- `backend/.env` is read at runtime via `env_file`; secrets are never baked into
+  the image.
+- Uploaded files and DuckDB datasets persist in the `backend-data` volume.
+- `NEXT_PUBLIC_API_BASE` is inlined at **build** time (the browser calls it), so
+  deploying somewhere other than localhost means rebuilding the frontend image:
+  `NEXT_PUBLIC_API_BASE=https://api.example.com docker compose build frontend`
+
+### Why Docker matters here beyond packaging
+
+`run_python` executes model-generated code. Containerizing is what turns its
+sandbox from "a timeout" into something with actual teeth:
+
+| Control | Local (Windows) | In Docker (Linux) |
+|---|---|---|
+| Wall-clock timeout | ✅ | ✅ |
+| Memory / CPU / file-size rlimits | ❌ (no `resource` module) | ✅ |
+| Non-root execution | ❌ | ✅ |
+| Container memory/PID/CPU caps | ❌ | ✅ |
+| Filesystem blast radius | whole user account | container only |
+
+Still **not** isolated: the sandbox shares the backend container, so it has
+network access and can read files in that container. Per-execution containers
+or gVisor would be the next step for untrusted input.
+
 ## Known limitations (deliberate, documented)
 
-- **`run_python` is not a security sandbox.** Subprocess + timeout + scoped working directory
-  only — no filesystem, network, or memory isolation (and no `resource.setrlimit` on Windows).
-  Not safe for untrusted users; real isolation is the next phase (Docker).
+- **`run_python` sandbox strength depends on how you run it.** On Windows it is only a
+  wall-clock timeout plus a scoped working directory. In the Docker deployment it also gets
+  memory/CPU/file-size rlimits, a non-root user, and container-level caps (see the table
+  above). Even then it shares the backend container's network and filesystem, so it is not
+  safe for genuinely untrusted users.
 - **Live-DB credentials** are stored in plaintext in the dataset's gitignored `meta.json`
   (redacted in API responses). Use a dedicated read-only DB user; move to a secret store
   before any real deployment.
@@ -139,4 +178,6 @@ exercises the identical ATTACH code path as Postgres/MySQL without needing a ser
 
 ## Next up
 
-Docker packaging and deployment — which also gives `run_python` a real isolation boundary.
+1. **Build and debug the Docker stack** (`docker compose up --build`) — written but never run.
+2. Deploy it somewhere, rebuilding the frontend image with the public `NEXT_PUBLIC_API_BASE`.
+3. Add auth before exposing it publicly — there is currently none.

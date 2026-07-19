@@ -24,3 +24,11 @@ SQL_ROW_LIMIT=200
 PY_TIMEOUT_SECONDS=20
 PY_MAX_OUTPUT_CHARS=20000
 MAX_UPLOAD_MB=50
+
+# --- run_python sandbox caps ---
+# Enforced with rlimits inside the child process. rlimits are Unix-only, so
+# these take effect in the Docker deployment (no-op when running on Windows).
+# Keep memory well above what pandas/numpy/plotly need just to import.
+PY_MAX_MEMORY_MB=2048
+PY_MAX_CPU_SECONDS=20
+PY_MAX_WRITE_MB=128

@@ -34,6 +34,12 @@ class Settings:
     SQL_ROW_LIMIT = int(_get("SQL_ROW_LIMIT", "200"))
     PY_TIMEOUT_SECONDS = int(_get("PY_TIMEOUT_SECONDS", "20"))
     PY_MAX_OUTPUT_CHARS = int(_get("PY_MAX_OUTPUT_CHARS", "20000"))
+    # Sandbox resource caps. Enforced via rlimits inside the child process,
+    # which only exist on Unix — i.e. they apply in the Docker deployment.
+    # Memory must stay comfortably above what pandas/numpy/plotly need to import.
+    PY_MAX_MEMORY_MB = int(_get("PY_MAX_MEMORY_MB", "2048"))
+    PY_MAX_CPU_SECONDS = int(_get("PY_MAX_CPU_SECONDS", "20"))
+    PY_MAX_WRITE_MB = int(_get("PY_MAX_WRITE_MB", "128"))
     MAX_UPLOAD_MB = int(_get("MAX_UPLOAD_MB", "50"))
 
 

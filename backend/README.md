@@ -72,9 +72,12 @@ Tests mock only the external boundaries (Gemini + Pinecone) and run everything e
 (DuckDB, extraction, subprocess execution), so they run offline with no API quota.
 
 ## Known limitations
-- **`run_python` is not a security sandbox** — subprocess + wall-clock timeout + scoped working dir
-  only; no filesystem/network/memory isolation (no `resource.setrlimit` on Windows). Do not expose
-  to untrusted users without real isolation (Docker/gVisor); planned for the deployment phase.
+- **`run_python` sandbox strength depends on the host.** Running directly on Windows it is only a
+  wall-clock timeout plus a scoped working directory. Under Docker (Linux) it additionally gets
+  memory/CPU/file-size rlimits (`PY_MAX_*`), a non-root user, and container memory/PID/CPU caps.
+  Either way it shares the backend's network and filesystem, so it is not safe for untrusted
+  users — per-execution containers or gVisor would be needed for that. See the root
+  `PROJECT_OVERVIEW.md` for the full comparison.
 - Prompt-injection surface via uploaded content; `run_sql` is restricted to read-only SELECT/WITH.
 - **Live-DB credentials are stored in plaintext** in the dataset's gitignored `meta.json`. They are
   redacted in API responses, but this is local-grade handling — use a dedicated read-only DB user,

@@ -88,7 +88,13 @@ def run_python(dataset_id: str, code: str) -> dict:
             f'{table} = pd.read_parquet(r"{path}")'
             for table, path in table_paths.items()
         )
-        script = RUNNER_TEMPLATE.format(table_loads=table_loads, user_code=code)
+        script = RUNNER_TEMPLATE.format(
+            table_loads=table_loads,
+            user_code=code,
+            mem_bytes=settings.PY_MAX_MEMORY_MB * 1024 * 1024,
+            cpu_seconds=settings.PY_MAX_CPU_SECONDS,
+            fsize_bytes=settings.PY_MAX_WRITE_MB * 1024 * 1024,
+        )
         (workdir / "run.py").write_text(script, encoding="utf-8")
 
         try:

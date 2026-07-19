@@ -1,0 +1,40 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    image: ai-analyst-backend
+    ports:
+      - "8090:8090"
+    # Secrets come from backend/.env at runtime — never baked into the image.
+    env_file:
+      - ./backend/.env
+    volumes:
+      # Persist uploaded files and materialized DuckDB datasets across restarts.
+      - backend-data:/app/data
+    # Caps the blast radius of model-generated code in run_python. The
+    # in-process rlimits should trip first; these are the backstop.
+    mem_limit: 3g
+    pids_limit: 256
+    cpus: 2.0
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./AI-agent-UI
+      args:
+        # Baked in at build time: this is the URL the *browser* calls, so it
+        # must be reachable from the host, not the compose network name.
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8090}
+    image: ai-analyst-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  backend-data:
