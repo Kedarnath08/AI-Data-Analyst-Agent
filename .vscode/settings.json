@@ -4,6 +4,10 @@
   // module duckdb/fastapi/..." errors even though the code runs and tests pass.
   "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
 
+  // The venv lives in a subfolder, so tell VSCode where to look for it —
+  // otherwise it won't appear in the interpreter picker for auto-discovery.
+  "python.venvPath": "${workspaceFolder}/backend",
+
   // Imports are written as `from src.analyst...`, which resolve with backend/
   // as the root (uvicorn and pytest are both run from there).
   "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
