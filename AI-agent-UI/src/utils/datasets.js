@@ -35,6 +35,17 @@ export async function getDataset(apiBase, id) {
   return handle(await fetch(`${apiBase}/datasets/${encodeURIComponent(id)}`));
 }
 
+export async function previewDataset(apiBase, id, table, limit = 25) {
+  const params = new URLSearchParams();
+  if (table) params.set("table", table);
+  params.set("limit", String(limit));
+  return handle(
+    await fetch(
+      `${apiBase}/datasets/${encodeURIComponent(id)}/preview?${params}`,
+    ),
+  );
+}
+
 export async function deleteDataset(apiBase, id) {
   return handle(
     await fetch(`${apiBase}/datasets/${encodeURIComponent(id)}`, {

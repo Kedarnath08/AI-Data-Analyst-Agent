@@ -32,11 +32,28 @@ export default function DatasetManager({
         const data = await fetchDatasets(apiBase);
         const list = data.datasets || [];
         setDatasets(list);
-        const target = selectId || dataset?.id;
+
+        // Prefer an explicit target, then the current selection, then the one
+        // remembered from a previous session, then the first available.
+        const remembered = localStorage.getItem("analyst_dataset_id");
+        const target = selectId || dataset?.id || remembered;
         const found = list.find((d) => d.id === target);
-        if (found) setDataset(found);
-        else if (!found && list.length > 0 && !dataset) setDataset(list[0]);
-        else if (list.length === 0) setDataset(null);
+        if (found) {
+          // Fetch full detail so schema/columns are available for the preview.
+          try {
+            setDataset(await getDataset(apiBase, found.id));
+          } catch {
+            setDataset(found);
+          }
+        } else if (list.length > 0 && !dataset) {
+          try {
+            setDataset(await getDataset(apiBase, list[0].id));
+          } catch {
+            setDataset(list[0]);
+          }
+        } else if (list.length === 0) {
+          setDataset(null);
+        }
       } catch (e) {
         setErr(e.message || "Failed to load datasets");
       } finally {

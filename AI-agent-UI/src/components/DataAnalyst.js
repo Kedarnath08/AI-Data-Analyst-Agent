@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import ModeTabs from "./ModeTabs";
 import DatasetManager from "./DatasetManager";
+import DataPreview from "./DataPreview";
+import SuggestedQuestions from "./SuggestedQuestions";
 import styles from "../app/page.module.css";
 import { askAnalyst } from "../utils/datasets";
 
@@ -159,6 +161,12 @@ export default function DataAnalyst({
   const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState([]);
   const chatRef = useRef(null);
+  const abortRef = useRef(null);
+
+  // Remember the selected dataset across reloads.
+  useEffect(() => {
+    if (dataset?.id) localStorage.setItem("analyst_dataset_id", dataset.id);
+  }, [dataset?.id]);
 
   useEffect(() => {
     if (chatRef.current) {
@@ -185,8 +193,11 @@ export default function DataAnalyst({
     setQuestion("");
     setBusy(true);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const data = await askAnalyst(apiBase, dataset.id, q);
+      const data = await askAnalyst(apiBase, dataset.id, q, controller.signal);
 
       // The agent can fail mid-run (e.g. model quota) and still return HTTP 200
       // with a structured error — surface it instead of showing an empty answer.
@@ -222,10 +233,19 @@ export default function DataAnalyst({
         );
       }
     } catch (err) {
-      pushSystem(`⚠️ ${err.message || err}`);
+      if (err.name === "AbortError") {
+        pushSystem("Analysis cancelled.");
+      } else {
+        pushSystem(`⚠️ ${err.message || err}`);
+      }
     } finally {
       setBusy(false);
+      abortRef.current = null;
     }
+  }
+
+  function cancel() {
+    abortRef.current?.abort();
   }
 
   function ThemeToggle() {
@@ -273,18 +293,31 @@ export default function DataAnalyst({
           {dataset?.tables?.length > 0 && (
             <>
               <div className={styles.logsTitle}>
-                <b>Tables</b>
+                <b>Schema</b>
               </div>
-              <ul className={styles.logsList}>
-                {dataset.tables.map((t) => (
-                  <li key={t.name}>
-                    {t.name}
-                    {typeof t.row_count === "number"
-                      ? ` (${t.row_count} rows)`
-                      : ""}
-                  </li>
-                ))}
-              </ul>
+              {dataset.tables.map((t) => {
+                const cols = dataset.schema?.[t.name] || t.columns || [];
+                return (
+                  <div key={t.name} className={styles.schemaTable}>
+                    <div className={styles.schemaTableName}>
+                      {t.name}
+                      {typeof t.row_count === "number" && (
+                        <span className={styles.schemaRowCount}>
+                          {t.row_count} rows
+                        </span>
+                      )}
+                    </div>
+                    <ul className={styles.schemaCols}>
+                      {cols.map((c) => (
+                        <li key={c.name}>
+                          <span className={styles.schemaColName}>{c.name}</span>
+                          <span className={styles.schemaColType}>{c.type}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
             </>
           )}
         </div>
@@ -325,11 +358,19 @@ export default function DataAnalyst({
             }}
           >
             {messages.length === 0 && (
-              <div className={styles.emptyMsg}>
-                {dataset
-                  ? `Ask a question about “${dataset.name}” — I can write SQL, run Python, and draw charts.`
-                  : "Upload a CSV/Excel/PDF/DOCX or connect a database to get started."}
-              </div>
+              <>
+                <div className={styles.emptyMsg}>
+                  {dataset
+                    ? `Ask a question about “${dataset.name}” — I can write SQL, run Python, and draw charts.`
+                    : "Upload a CSV/Excel/PDF/DOCX or connect a database to get started."}
+                </div>
+                <DataPreview apiBase={apiBase} dataset={dataset} />
+                <SuggestedQuestions
+                  dataset={dataset}
+                  disabled={busy}
+                  onPick={(q) => setQuestion(q)}
+                />
+              </>
             )}
             {messages.map((m, i) => (
               <AnalystMessage key={i} m={m} />
@@ -338,6 +379,9 @@ export default function DataAnalyst({
               <div className={styles.typingBubble}>
                 <div className={styles.assistantHeader}>Analyst</div>
                 <div>Analyzing… (writing and running queries)</div>
+                <button className={styles.stopBtn} onClick={cancel}>
+                  ⏹ Stop
+                </button>
               </div>
             )}
           </div>
