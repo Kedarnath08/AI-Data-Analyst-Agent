@@ -1,5 +1,10 @@
 # AI Data Analyst Agent + RAG Chatbot
 
+**🔗 Live demo:** https://ai-data-analyst-agent-1-nxxa.onrender.com/
+> Free-tier hosting: the first request after a period of inactivity can take 30-60s to wake up,
+> and uploaded datasets don't persist across a redeploy/restart. No authentication — don't upload
+> anything sensitive.
+
 Two AI workspaces behind one UI and one backend:
 
 - **📊 Data Analyst** — upload a CSV/Excel/PDF/DOCX *or* connect a live Postgres/MySQL/SQLite
