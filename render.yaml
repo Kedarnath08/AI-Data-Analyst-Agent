@@ -1,0 +1,81 @@
+# Render Blueprint — deploys backend + frontend as two free-tier Docker web
+# services. Connect this repo at https://dashboard.render.com/blueprints and
+# Render will read this file automatically.
+#
+# Known free-tier constraints (see README "Known limitations"):
+#   - No persistent disk on the free plan: uploaded datasets (DuckDB files
+#     under /app/data) do NOT survive a redeploy or a spin-down restart.
+#   - Free services spin down after ~15 min idle; the next request pays a
+#     cold-start (~30-60s) penalty.
+#   - NEXT_PUBLIC_API_BASE is baked into the frontend at *build* time (see
+#     README), so it must point at the backend's real onrender.com URL. That
+#     URL is only known after the backend's first deploy, so:
+#       1. Deploy this blueprint once (frontend build will point at a guessed
+#          URL below).
+#       2. Copy the backend service's actual URL from the Render dashboard.
+#       3. If it differs from the guess, edit NEXT_PUBLIC_API_BASE below (or
+#          set it in the frontend service's Environment tab) and trigger a
+#          manual redeploy of the frontend so the new value gets baked in.
+
+services:
+  - type: web
+    name: ai-analyst-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GEN_MODEL
+        value: gemini-flash-lite-latest
+      - key: EMBED_MODEL
+        value: gemini-embedding-001
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_INDEX
+        value: rag-gemini-demo
+      - key: PINECONE_CLOUD
+        value: aws
+      - key: PINECONE_REGION
+        value: us-east-1
+      - key: TOP_K
+        value: "8"
+      - key: SIM_THRESHOLD
+        value: "0.5"
+      - key: CHUNK_SIZE
+        value: "900"
+      - key: CHUNK_OVERLAP
+        value: "300"
+      - key: MAX_AGENT_ITERATIONS
+        value: "8"
+      - key: SQL_ROW_LIMIT
+        value: "200"
+      - key: PY_TIMEOUT_SECONDS
+        value: "20"
+      - key: PY_MAX_OUTPUT_CHARS
+        value: "20000"
+      - key: MAX_UPLOAD_MB
+        value: "50"
+      - key: PY_MAX_MEMORY_MB
+        value: "2048"
+      - key: PY_MAX_CPU_SECONDS
+        value: "20"
+      - key: PY_MAX_WRITE_MB
+        value: "128"
+
+  - type: web
+    name: ai-analyst-frontend
+    runtime: docker
+    rootDir: AI-agent-UI
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      # Guessed URL — Render usually assigns exactly <name>.onrender.com when
+      # it's free, but confirm against the dashboard after the first deploy
+      # (see the note at the top of this file).
+      - key: NEXT_PUBLIC_API_BASE
+        value: https://ai-analyst-backend.onrender.com

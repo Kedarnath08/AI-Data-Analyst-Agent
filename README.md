@@ -199,8 +199,8 @@ no API quota. Live-database behavior is covered via SQLite, which exercises the 
 
 ## Running with Docker
 
-> ⚠️ **Written but never executed** — authored on a machine without Docker. Treat the first
-> `docker compose up --build` as a debugging session, not a working deployment.
+> ✅ **Built and run successfully** — both images build cleanly and the containers pass their
+> health checks (`/health` returns 200, the frontend serves and reaches the backend).
 
 ```bash
 cp backend/env_sample.txt backend/.env    # add your keys
@@ -228,6 +228,36 @@ NEXT_PUBLIC_API_BASE=https://api.example.com docker compose build frontend
 
 ---
 
+## Deploying (Render, free tier)
+
+> ⚠️ This deploys the app **with no authentication** (see "Known limitations" below) on a public
+> URL. Anyone who finds it can query or delete datasets and burn your Gemini/Pinecone quota. Fine
+> for a demo you control the link to; add auth before sharing it widely.
+
+`render.yaml` at the repo root is a [Render Blueprint](https://render.com/docs/blueprint-spec)
+that deploys the backend and frontend as two free-tier Docker web services.
+
+1. Push this repo to GitHub (Render Blueprints deploy from a connected repo).
+2. In the Render dashboard: **New → Blueprint**, pick this repo. Render reads `render.yaml`.
+3. Fill in the secret env vars it prompts for (`GOOGLE_API_KEY`, `PINECONE_API_KEY`).
+4. After the first deploy, confirm the backend service's actual `*.onrender.com` URL matches
+   the guess baked into `render.yaml`'s `NEXT_PUBLIC_API_BASE`. If it differs, update it (repo
+   or the frontend service's Environment tab) and manually redeploy the frontend — this value is
+   inlined at **build** time, same caveat as the local Docker setup above.
+
+**Free-tier caveats:**
+- **No persistent disk.** Uploaded datasets (DuckDB files) live in `/app/data` and are lost on
+  every redeploy or idle spin-down. Fine for a demo, not for real usage — a paid plan with a
+  Render Disk (or external object storage) is needed to persist data.
+- **Spin-down.** Free services sleep after ~15 min of inactivity; the next request eats a
+  30-60s cold start.
+
+Railway is an equally viable alternative (Docker-native, no code changes needed since both
+Dockerfiles already build standalone) — it just isn't set up here since `render.yaml` targets
+Render specifically.
+
+---
+
 ## Known limitations
 
 These are deliberate trade-offs, documented rather than hidden:
@@ -250,6 +280,7 @@ These are deliberate trade-offs, documented rather than hidden:
 
 ## Roadmap
 
-1. Build and debug the Docker stack, then deploy it.
+1. ~~Build and debug the Docker stack, then deploy it.~~ Done — see "Running with Docker" and
+   "Deploying (Render, free tier)" above.
 2. Add authentication before any public deployment.
 3. Per-execution container isolation for `run_python`.
