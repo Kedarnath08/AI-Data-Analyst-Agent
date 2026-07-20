@@ -65,6 +65,8 @@ services:
         value: "20"
       - key: PY_MAX_WRITE_MB
         value: "128"
+      - key: CORS_EXTRA_ORIGINS
+        value: https://ai-data-analyst-agent-1-nxxa.onrender.com
 
   - type: web
     name: ai-analyst-frontend

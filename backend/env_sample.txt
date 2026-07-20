@@ -32,3 +32,8 @@ MAX_UPLOAD_MB=50
 PY_MAX_MEMORY_MB=2048
 PY_MAX_CPU_SECONDS=20
 PY_MAX_WRITE_MB=128
+
+# --- CORS ---
+# Comma-separated extra origins allowed on top of localhost (e.g. a deployed
+# frontend's URL). Leave empty for local dev.
+CORS_EXTRA_ORIGINS=

@@ -50,5 +50,12 @@ class Settings:
     PY_MAX_WRITE_MB = int(_get("PY_MAX_WRITE_MB", "128"))
     MAX_UPLOAD_MB = int(_get("MAX_UPLOAD_MB", "50"))
 
+    # --- CORS ---
+    # Comma-separated extra origins allowed on top of localhost, e.g. a
+    # deployed frontend's URL. Empty by default (local dev only).
+    CORS_EXTRA_ORIGINS = [
+        o.strip() for o in _get("CORS_EXTRA_ORIGINS", "").split(",") if o.strip()
+    ]
+
 
 settings = Settings()
