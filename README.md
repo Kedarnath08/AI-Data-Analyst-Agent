@@ -199,9 +199,6 @@ no API quota. Live-database behavior is covered via SQLite, which exercises the 
 
 ## Running with Docker
 
-> ✅ **Built and run successfully** — both images build cleanly and the containers pass their
-> health checks (`/health` returns 200, the frontend serves and reaches the backend).
-
 ```bash
 cp backend/env_sample.txt backend/.env    # add your keys
 docker compose up --build
@@ -240,28 +237,20 @@ that deploys the backend and frontend as two free-tier Docker web services.
 1. Push this repo to GitHub (Render Blueprints deploy from a connected repo).
 2. In the Render dashboard: **New → Blueprint**, pick this repo. Render reads `render.yaml`.
 3. Fill in the secret env vars it prompts for (`GOOGLE_API_KEY`, `PINECONE_API_KEY`).
-4. After the first deploy, confirm the backend service's actual `*.onrender.com` URL matches
-   the guess baked into `render.yaml`'s `NEXT_PUBLIC_API_BASE`. If it differs, update it (repo
-   or the frontend service's Environment tab) and manually redeploy the frontend — this value is
-   inlined at **build** time, same caveat as the local Docker setup above.
+4. Confirm the backend service's actual `*.onrender.com` URL matches `render.yaml`'s
+   `NEXT_PUBLIC_API_BASE`; if it differs, update it and manually redeploy the frontend — this
+   value is inlined at **build** time, same caveat as the local Docker setup above.
 
 **Free-tier caveats:**
-- **No persistent disk.** Uploaded datasets (DuckDB files) live in `/app/data` and are lost on
-  every redeploy or idle spin-down. Fine for a demo, not for real usage — a paid plan with a
-  Render Disk (or external object storage) is needed to persist data.
-- **Spin-down.** Free services sleep after ~15 min of inactivity; the next request eats a
-  30-60s cold start.
-- **CPU throttling can starve the agent loop.** The free instance's CPU is heavily shared, so
-  `run_python` work (pandas/plotly) can take longer in wall-clock time than locally even though
-  actual CPU-seconds used stays low. `render.yaml` raises `PY_TIMEOUT_SECONDS` (45s),
-  `PY_MAX_CPU_SECONDS` (40s), and `MAX_AGENT_ITERATIONS` (12) above the `env_sample.txt` defaults
-  to compensate. If you still see "I couldn't reach a final answer within the tool-call budget"
-  or the model reporting it can't render a chart, ask a narrower question first — broad,
-  open-ended prompts against wide/messy schemas cost the most exploratory tool calls.
+- **No persistent disk** — uploaded datasets (DuckDB files) don't survive a redeploy or
+  idle spin-down. Fine for a demo, not for real usage.
+- **Spin-down** after ~15 min idle; the next request eats a 30-60s cold start.
+- **CPU throttling** on the shared free instance can make the agent loop slower than local, so
+  `render.yaml` raises `PY_TIMEOUT_SECONDS`, `PY_MAX_CPU_SECONDS`, and `MAX_AGENT_ITERATIONS`
+  above the `env_sample.txt` defaults. If the agent still hits its tool-call budget, ask a
+  narrower question.
 
-Railway is an equally viable alternative (Docker-native, no code changes needed since both
-Dockerfiles already build standalone) — it just isn't set up here since `render.yaml` targets
-Render specifically.
+Railway is an equally viable alternative — no code changes needed, just not set up here.
 
 ---
 
@@ -287,7 +276,5 @@ These are deliberate trade-offs, documented rather than hidden:
 
 ## Roadmap
 
-1. ~~Build and debug the Docker stack, then deploy it.~~ Done — see "Running with Docker" and
-   "Deploying (Render, free tier)" above.
-2. Add authentication before any public deployment.
-3. Per-execution container isolation for `run_python`.
+1. Add authentication before any public deployment.
+2. Per-execution container isolation for `run_python`.
