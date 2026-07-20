@@ -74,8 +74,9 @@ services:
     dockerContext: .
     plan: free
     envVars:
-      # Guessed URL — Render usually assigns exactly <name>.onrender.com when
-      # it's free, but confirm against the dashboard after the first deploy
-      # (see the note at the top of this file).
+      # Real URL of the deployed backend service. Render assigned a suffixed
+      # name rather than "ai-analyst-backend" (the service was created
+      # manually rather than via this Blueprint) — if you ever redeploy from
+      # scratch via Blueprint, update this to whatever URL Render assigns.
       - key: NEXT_PUBLIC_API_BASE
-        value: https://ai-analyst-backend.onrender.com
+        value: https://ai-data-analyst-agent-ramt.onrender.com
