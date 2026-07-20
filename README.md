@@ -251,6 +251,13 @@ that deploys the backend and frontend as two free-tier Docker web services.
   Render Disk (or external object storage) is needed to persist data.
 - **Spin-down.** Free services sleep after ~15 min of inactivity; the next request eats a
   30-60s cold start.
+- **CPU throttling can starve the agent loop.** The free instance's CPU is heavily shared, so
+  `run_python` work (pandas/plotly) can take longer in wall-clock time than locally even though
+  actual CPU-seconds used stays low. `render.yaml` raises `PY_TIMEOUT_SECONDS` (45s),
+  `PY_MAX_CPU_SECONDS` (40s), and `MAX_AGENT_ITERATIONS` (12) above the `env_sample.txt` defaults
+  to compensate. If you still see "I couldn't reach a final answer within the tool-call budget"
+  or the model reporting it can't render a chart, ask a narrower question first — broad,
+  open-ended prompts against wide/messy schemas cost the most exploratory tool calls.
 
 Railway is an equally viable alternative (Docker-native, no code changes needed since both
 Dockerfiles already build standalone) — it just isn't set up here since `render.yaml` targets

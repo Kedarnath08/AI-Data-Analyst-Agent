@@ -50,11 +50,17 @@ services:
       - key: CHUNK_OVERLAP
         value: "300"
       - key: MAX_AGENT_ITERATIONS
-        value: "8"
+        # Bumped from the 8 default: Render's free plan is a heavily
+        # CPU-throttled shared instance, so the agent needs more tool-call
+        # room than a local machine to reach a final answer.
+        value: "12"
       - key: SQL_ROW_LIMIT
         value: "200"
       - key: PY_TIMEOUT_SECONDS
-        value: "20"
+        # Bumped from the 20s default for the same reason: wall-clock time
+        # for pandas/plotly work is higher on a throttled free instance even
+        # when actual CPU-seconds used stays low.
+        value: "45"
       - key: PY_MAX_OUTPUT_CHARS
         value: "20000"
       - key: MAX_UPLOAD_MB
@@ -62,7 +68,7 @@ services:
       - key: PY_MAX_MEMORY_MB
         value: "2048"
       - key: PY_MAX_CPU_SECONDS
-        value: "20"
+        value: "40"
       - key: PY_MAX_WRITE_MB
         value: "128"
       - key: CORS_EXTRA_ORIGINS
